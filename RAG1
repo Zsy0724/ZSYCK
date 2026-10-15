@@ -1,0 +1,80 @@
+import importlib.util  # 导入 importlib.util 模块，用于检查某个模块是否安装
+from dataclasses import dataclass  # 导入 dataclass，用于快速定义数据类
+
+if importlib.util.find_spec("langchain_text_splitters") is not None:  # 如果 langchain_text_splitters 已安装
+    from langchain_text_splitters import CharacterTextSplitter  # 直接导入官方的 CharacterTextSplitter
+else:  # 否则执行兜底方案，自己定义一个简化版
+    @dataclass  # 给 Document 类自动生成 __init__ 等常用方法
+    class Document:
+        page_content: str  # 文档内容字段，类型为字符串
+
+    class CharacterTextSplitter:  # 定义一个简化版文本切分器，用于缺失依赖时仍可运行
+        def __init__(self, separator=" ", chunk_size=100, chunk_overlap=20, length_function=len):  # 初始化切分器参数
+            self.separator = separator  # 保存分隔符，默认按空格切分
+            self.chunk_size = chunk_size  # 保存每个块的最大长度
+            self.chunk_overlap = chunk_overlap  # 保存相邻块之间的重叠长度
+            self.length_function = length_function  # 保存长度计算函数，默认用 len
+
+        def _split_text(self, text):  # 定义私有方法，负责把长文本拆成多个片段
+            parts = [part.strip() for part in text.split(self.separator) if part.strip()]  # 用分隔符切分文本，并过滤空字符串
+            chunks = []  # 用于保存所有切分好的文本块
+            current = []  # 当前正在构建的文本块
+            current_len = 0  # 当前块的长度
+
+            for part in parts:  # 遍历每一段分词/片段
+                candidate = part if not current else f"{self.separator}{part}"  # 计算这次加入后可能的字符串形式
+                proposed_len = self.length_function(self.separator.join(current + [part]))  # 评估加入当前片段后，当前块将达到多大长度
+
+                if current and proposed_len > self.chunk_size:  # 如果当前块已有内容，且继续加入会超出最大长度
+                    chunks.append(self.separator.join(current))  # 把当前块保存进去
+                    current = current[-max(1, self.chunk_overlap // 2):]  # 保留尾部一部分作为重叠内容
+                    current_len = self.length_function(self.separator.join(current))  # 更新重叠后的长度
+                current.append(part)  # 把当前片段加入到当前块中
+                current_len = self.length_function(self.separator.join(current))  # 更新当前块长度
+
+            if current:  # 如果循环结束后仍有未保存的内容
+                chunks.append(self.separator.join(current))  # 把最后一个块追加到结果中
+            return chunks  # 返回所有切分后的文本块
+
+        def create_documents(self, texts):  # 把输入的多个文本块转换成 Document 对象列表
+            documents = []  # 用于保存生成的文档对象
+            for text in texts:  # 遍历每一段原始文本
+                for chunk in self._split_text(text):  # 对每一段文本进行切分
+                    documents.append(Document(page_content=chunk))  # 创建一个 Document，并保存该切分片段内容
+            return documents  # 返回文档列表
+
+Sample_txet = (  # 定义一个示例文本，使用括号让多个字符串连续拼接成一个长文本
+    " The Importance of Lifelong Learning"  # 片段1：标题，前面有空格
+    "In today's rapidly changing world, "  # 片段2：背景介绍
+    "the concept of lifelong learning has become more relevant than ever before."  # 片段3：概念概述
+    " Gone are the days when a person could learn a single trade, "  # 片段4：对旧学习模式的反思
+    "work in that field for forty years, and retire comfortably. "  # 片段5：继续说明传统模式
+    "The pace of technological advancement, combined with shifting economic landscapes,"  # 片段6：说明时代变化
+    " demands that individuals continuously update their knowledge and skills to remain competitive and adaptable."  # 片段7：强调持续学习的必要性
+    "Lifelong learning does not necessarily mean pursuing formal degrees or certifications. "  # 片段8：说明学习形式不限于学历
+    "It can take many forms: reading books, taking online courses, attending workshops, "  # 片段9：列举学习方式
+    "or simply engaging in meaningful conversations with people from different backgrounds."  # 片段10：再次补充学习方式
+    " What matters is the willingness to stay curious and open-minded, "  # 片段11：强调学习态度
+    "to embrace the idea that education does not end when we leave the classroom."  # 片段12：说明教育没有终点
+    "Research has consistently shown that lifelong learning offers numerous benefits beyond career advancement. "  # 片段13：引出益处
+    "It keeps the brain active and healthy, potentially reducing the risk of cognitive decline in later life. "  # 片段14：益处-健康
+    "It fosters personal growth and self-confidence, allowing individuals to discover new passions and talents they never knew they had."  # 片段15：益处-个人成长
+    " Moreover, it helps people connect with others, building communities that are more informed, empathetic, and resilient."  # 片段16：益处-社会关系
+    "Of course, lifelong learning requires effort and discipline. In a world filled with distractions, setting aside time to learn something new can be challenging. "  # 片段17：现实困难
+    "However, the rewards far outweigh the costs. Those who commit to continuous learning tend to be more adaptable in the face of change, "  # 片段18：积极说明
+    "more creative in solving problems, and more fulfilled in their personal and professional lives."  # 片段19：再次说明收益
+    "Ultimately, lifelong learning is not just a strategy for success — it is a mindset. It is a recognition that we are never truly finished growing, and that every day offers an opportunity to become a slightly better version of ourselves. Embracing this mindset can transform not only our own lives but also the world around us."  # 片段20：总结结论
+)
+
+text_splitter = CharacterTextSplitter(  # 创建一个文本切分器实例，并配置参数
+    separator=" ",  # 以空格为分隔符进行切分
+    chunk_size=100,  # 每个文本块最多100个字符
+    chunk_overlap=20,  # 相邻文本块重叠20个字符
+    length_function=len,  # 使用 len 作为长度计算函数
+)
+
+docs = text_splitter.create_documents([Sample_txet])  # 把示例文本切成多个 Document 对象
+for i, doc in enumerate(docs):  # 遍历每一个切分后的文档块，并记录编号
+    print(f"--- chunk{i + 1} --- ")  # 输出当前块的编号标题
+    print(len(doc.page_content))  # 打印当前块的字符长度
+    print(doc.page_content)  # 打印当前块的文本内容
